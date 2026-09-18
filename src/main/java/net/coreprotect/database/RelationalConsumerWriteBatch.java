@@ -17,6 +17,7 @@ import org.duckdb.DuckDBConnection;
 
 import net.coreprotect.config.ConfigHandler;
 import net.coreprotect.database.statement.EntitySpawnStatement;
+import net.coreprotect.model.entity.EntitySpawnIdentity;
 
 public final class RelationalConsumerWriteBatch implements ConsumerWriteBatch {
 
@@ -48,6 +49,8 @@ public final class RelationalConsumerWriteBatch implements ConsumerWriteBatch {
     private PreparedStatement skullStatement;
     private PreparedStatement entityStatement;
     private PreparedStatement entitySpawnStatement;
+    private PreparedStatement entitySpawnIdentityInsertStatement;
+    private PreparedStatement entitySpawnIdentityLookupStatement;
     private PreparedStatement entitySpawnBlockLinkStatement;
     private PreparedStatement entitySpawnCheckpointStatement;
     private PreparedStatement entitySpawnCheckpointStateStatement;
@@ -458,6 +461,55 @@ public final class RelationalConsumerWriteBatch implements ConsumerWriteBatch {
         }
         statement.setInt(16, removed);
         return Math.toIntExact(executeReturningId(statement, "entity spawn insert"));
+    }
+
+    @Override
+    public EntitySpawnIdentity resolveEntitySpawnIdentity(int time, UUID uuid, int originWorldId, int currentWorldId, double originX, double originY, double originZ, double currentX, double currentY, double currentZ, float yaw, float pitch) throws Exception {
+        if (!databaseType.isDuckDB()) {
+            return ConsumerWriteBatch.super.resolveEntitySpawnIdentity(time, uuid, originWorldId, currentWorldId, originX, originY, originZ, currentX, currentY, currentZ, yaw, pitch);
+        }
+
+        // A preflight cache miss is not proof that the UUID is still absent. Avoid
+        // raising a uniqueness error, which would abort the DuckDB transaction.
+        if (entitySpawnIdentityInsertStatement == null) {
+            String sql = "INSERT INTO " + ConfigHandler.prefix + "entity_spawn (time,uuid,wid,current_wid,origin_x,origin_y,origin_z,x,y,z,yaw,pitch,removed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0) ON CONFLICT(uuid) DO NOTHING RETURNING rowid";
+            entitySpawnIdentityInsertStatement = own(connection.prepareStatement(sql));
+        }
+        entitySpawnIdentityInsertStatement.setInt(1, time);
+        entitySpawnIdentityInsertStatement.setString(2, uuid.toString());
+        entitySpawnIdentityInsertStatement.setInt(3, originWorldId);
+        entitySpawnIdentityInsertStatement.setInt(4, currentWorldId);
+        entitySpawnIdentityInsertStatement.setDouble(5, originX);
+        entitySpawnIdentityInsertStatement.setDouble(6, originY);
+        entitySpawnIdentityInsertStatement.setDouble(7, originZ);
+        entitySpawnIdentityInsertStatement.setDouble(8, currentX);
+        entitySpawnIdentityInsertStatement.setDouble(9, currentY);
+        entitySpawnIdentityInsertStatement.setDouble(10, currentZ);
+        entitySpawnIdentityInsertStatement.setFloat(11, yaw);
+        entitySpawnIdentityInsertStatement.setFloat(12, pitch);
+        try (ResultSet resultSet = entitySpawnIdentityInsertStatement.executeQuery()) {
+            if (resultSet.next()) {
+                int rowId = Math.toIntExact(resultSet.getLong(1));
+                return new EntitySpawnIdentity(rowId, uuid, originWorldId, originX, originY, originZ);
+            }
+        }
+
+        // Preserve the stored origin and spawn-log link as well as the row id.
+        // Do not overwrite history or revive a removed entity on a duplicate.
+        if (entitySpawnIdentityLookupStatement == null) {
+            entitySpawnIdentityLookupStatement = own(connection.prepareStatement("SELECT rowid AS id,wid,origin_x,origin_y,origin_z,block_rowid FROM " + ConfigHandler.prefix + "entity_spawn WHERE uuid=? LIMIT 2"));
+        }
+        entitySpawnIdentityLookupStatement.setString(1, uuid.toString());
+        try (ResultSet resultSet = entitySpawnIdentityLookupStatement.executeQuery()) {
+            if (!resultSet.next()) {
+                throw new SQLException("Conflicting entity UUID has no visible tracking row: " + uuid);
+            }
+            EntitySpawnIdentity identity = new EntitySpawnIdentity(Math.toIntExact(resultSet.getLong("id")), uuid, resultSet.getInt("wid"), resultSet.getDouble("origin_x"), resultSet.getDouble("origin_y"), resultSet.getDouble("origin_z"), resultSet.getObject("block_rowid") != null);
+            if (resultSet.next()) {
+                throw new SQLException("Entity UUID resolves to multiple tracking rows: " + uuid);
+            }
+            return identity;
+        }
     }
 
     @Override
