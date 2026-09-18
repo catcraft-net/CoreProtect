@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import net.coreprotect.model.entity.EntitySpawnIdentity;
+
 public interface ConsumerWriteBatch extends AutoCloseable {
 
     enum ReferenceKind {
@@ -61,6 +63,11 @@ public interface ConsumerWriteBatch extends AutoCloseable {
     int addEntity(int time, byte[] data) throws Exception;
 
     int addEntitySpawn(int time, Long blockRowId, Integer killRowId, UUID uuid, int originWorldId, int currentWorldId, double originX, double originY, double originZ, double currentX, double currentY, double currentZ, float yaw, float pitch, byte[] data, int removed) throws Exception;
+
+    default EntitySpawnIdentity resolveEntitySpawnIdentity(int time, UUID uuid, int originWorldId, int currentWorldId, double originX, double originY, double originZ, double currentX, double currentY, double currentZ, float yaw, float pitch) throws Exception {
+        int rowId = addEntitySpawn(time, null, null, uuid, originWorldId, currentWorldId, originX, originY, originZ, currentX, currentY, currentZ, yaw, pitch, null, 0);
+        return new EntitySpawnIdentity(rowId, uuid, originWorldId, originX, originY, originZ);
+    }
 
     void linkEntitySpawnBlock(int trackingRowId, long blockRowId) throws Exception;
 
