@@ -52,8 +52,7 @@ public final class EntitySpawnStatement {
     }
 
     public static EntitySpawnIdentity insertIdentity(ConsumerWriteBatch batch, int time, UUID uuid, EntityInteractionOrigin origin, Location currentLocation) throws Exception {
-        int rowId = batch.addEntitySpawn(time, null, null, uuid, origin.getWorldId(), WorldUtils.getWorldId(currentLocation.getWorld().getName()), origin.getX(), origin.getY(), origin.getZ(), currentLocation.getX(), currentLocation.getY(), currentLocation.getZ(), currentLocation.getYaw(), currentLocation.getPitch(), null, 0);
-        return new EntitySpawnIdentity(rowId, uuid, origin.getWorldId(), origin.getX(), origin.getY(), origin.getZ());
+        return batch.resolveEntitySpawnIdentity(time, uuid, origin.getWorldId(), WorldUtils.getWorldId(currentLocation.getWorld().getName()), origin.getX(), origin.getY(), origin.getZ(), currentLocation.getX(), currentLocation.getY(), currentLocation.getZ(), currentLocation.getYaw(), currentLocation.getPitch());
     }
 
     public static EntitySpawnIdentity insertTerminalIdentity(ConsumerWriteBatch batch, EntitySpawnData data) throws Exception {
